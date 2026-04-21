@@ -153,6 +153,33 @@ RUBIKA_SESSION=rubsession
 cp .env.example .env
 ```
 
+## 📌 دریافت API_ID و API_HASH از تلگرام
+
+برای استفاده از پروژه، ابتدا باید API تلگرام دریافت کنید:
+
+1. وارد سایت زیر شوید:
+   👉 https://my.telegram.org
+
+2. با شماره تلگرام خود وارد شوید
+
+3. روی **API development tools** کلیک کنید
+
+4. فرم را به شکل زیر پر کنید:
+
+```text
+App title: tele2rub
+Short name: t2r
+```
+
+5. پس از ثبت، مقادیر زیر به شما داده می‌شود:
+
+* **API_ID**
+* **API_HASH**
+
+این مقادیر را در فایل `.env` قرار دهید.
+
+درصورت مشکل در دریافت API ID و API HASH مقادیر در کانال تلگرام قرار گرفته 
+لینک : https://t.me/caffeinexz/3
 ---
 
 ## 🔐 اجرای اولیه
