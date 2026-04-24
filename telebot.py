@@ -10,7 +10,7 @@ from pyrogram.types import Message
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 import yt_dlp
-
+import pyzipper
 
 load_dotenv()
 
@@ -23,13 +23,21 @@ DOWNLOAD_DIR = BASE_DIR / "downloads"
 QUEUE_DIR = BASE_DIR / "queue"
 QUEUE_FILE = QUEUE_DIR / "tasks.jsonl"
 #cache for saving url to download
-CHACHE = QUEUE_DIR / "cache.json"
+CACHE  = QUEUE_DIR / "cache.json"
+
+#saving users info (may be unnecessary)
+SAVE = QUEUE_DIR / "saver.json"
+
+#to keep users password
+ZIP =  QUEUE_DIR / "zip.json"
 
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 QUEUE_DIR.mkdir(parents=True, exist_ok=True)
 
-with open(CHACHE, "w") as f:
-    f.write("{}")
+open(CACHE , "w").write("{}")
+open(SAVE , "w").write("{}")
+open(ZIP , "w").write("{}")
+
 
 if not API_ID or not API_HASH or not BOT_TOKEN:
     raise RuntimeError("Please set API_ID, API_HASH and BOT_TOKEN in .env")
@@ -164,10 +172,25 @@ async def media_handler(client: Client, message: Message):
         )
 
         if not downloaded:
+            await status.edit_text("مشکلی در دانلود فایل پیش آمد \n{downloaded}")
             raise RuntimeError("Download failed.")
 
+
+        download_path = Path(download_path)
+        zip_name = download_path.with_suffix(".zip")
+
+        print(zip_name)   
+        password = json.load(open(ZIP ,"r",encoding="UTF-8")).get(str(message.from_user.id),"")
+        print(password)
+        if not password == "":
+            with pyzipper.AESZipFile(zip_name, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+                zf.setpassword(password.encode())
+                zf.write(download_path, arcname=download_path.name)
+            download_path = zip_name
+
         await status.edit_text("فایل از تلگرام با موفقیت دانلود شد.")
-        downloaded_path = Path(downloaded)
+        downloaded_path = Path(download_path)
+        print(downloaded_path)
         if not downloaded_path.exists():
             raise RuntimeError("Downloaded file not found.")
 
@@ -179,6 +202,8 @@ async def media_handler(client: Client, message: Message):
             "status_message_id": status.id,
         }
 
+        infos = [message.from_user.id,message.from_user.username,message.chat.id]
+        save_user(str(download_path),infos)
         append_task(task)
 
     except Exception as e:
@@ -190,21 +215,28 @@ async def media_handler(client: Client, message: Message):
 #download link section  
 def add_cache(id,url):
 
-    with open(CHACHE,"r",encoding="UTF-8") as f:
+    with open(CACHE ,"r",encoding="UTF-8") as f:
         data = json.load(f)
     
     data[id] = url
-    with open(CHACHE, "w", encoding="utf-8") as f:
+    with open(CACHE , "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
     return data
 
 def read_cache():
 
-    with open(CHACHE,"r",encoding="UTF-8") as f:
+    with open(CACHE ,"r",encoding="UTF-8") as f:
         data = json.load(f)
 
     return data
 
+def save_user(path, info):
+    with open(SAVE,"r",encoding="UTF-8") as f:
+        data = json.load(f)
+    
+    data[path] = info
+    with open(SAVE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
 
 def get_formats(url):
     ydl_opts = {"quiet": True, "skip_download": True}
@@ -284,6 +316,47 @@ async def callback_handler(client, callback_query):
     
 
     os.remove(filename)
+
+################################
+#zip files
+
+def update_zip(state,user,password):
+    user = str(user)
+    with open(ZIP ,"r",encoding="UTF-8") as f:
+        data = json.load(f)
+
+    print(data)
+    print(data.get(user,None))
+    if not data.get(user,None):
+        data[user] = ""
+    if state:
+        data[user] = password
+    else:
+        data[user] = ""
+
+    with open(ZIP , "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+
+@app.on_message(filters.command("zip"))
+def ask_file(client, message):
+    parts = message.text.split()
+    if len(parts) == 1:
+        update_zip(False,message.from_user.id,"")
+        message.reply("قابلیت زیب کردن خاموش شد.")
+        return
+    if len(parts) == 2:
+        password = parts[1]
+        update_zip(True,message.from_user.id,password)
+        message.reply("پسورد ذخیره شد، فایل را ارسال کنید")
+    else:
+        txt = """
+        فرمت صحیح به صورت:
+        /zip <password>"""
+        message.reply(txt)
+
+
+
 
 
 if __name__ == "__main__":
