@@ -18,7 +18,8 @@ DOWNLOAD_DIR = BASE_DIR / "downloads"
 QUEUE_DIR = BASE_DIR / "queue"
 QUEUE_FILE = QUEUE_DIR / "tasks.jsonl"
 PROCESSING_FILE = QUEUE_DIR / "processing.json"
-FAILED_FILE = QUEUE_DIR / "failed.jsonl"
+FAILED_FILE= QUEUE_DIR / "failed.jsonl"
+open(PROCESSING_FILE , "w").write("{}")
 
 MAX_RETRIES = 5
 RETRY_DELAY = 3
@@ -93,57 +94,58 @@ def ensure_session():
 
 
 
-def send_with_retry(file_path: str, caption: str = ""):
+def send_with_retry(file_paths: str, caption: str = ""):
     last_error = None
     client = RubikaClient(name=SESSION)
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            client.start()
-            tx = f"""در حال ارسال فایل
-                    {file_path}
-                    """
-            client.send_message(TARGET,tx)
-            client.send_document(
-                TARGET,
-                file_path,
-                caption=caption or ""
-            )
-
-            return
-        except Exception as e:
-            last_error = e
-            error_text = str(e).lower()
-
-            transient = any(
-                key in error_text
-                for key in [
-                    "502",
-                    "bad gateway",
-                    "timeout",
-                    "cannot connect",
-                    "connection reset",
-                    "temporarily unavailable",
-                    "error uploading chunk",
-                ]
-            )
-
-
-            error_msg = f"""Attempt {attempt}/{MAX_RETRIES} failed \nerror: {error_text} """
-            client.send_message(TARGET,error_msg)
-            if transient and attempt < MAX_RETRIES:
-                time.sleep(RETRY_DELAY * attempt)
-                continue
-
-            break
-
-            
-
-        finally:
+    client.start()
+    for file_path in file_paths:
+        for attempt in range(1, MAX_RETRIES + 1):
             try:
+                tx = f"""در حال ارسال فایل
+                        {file_path}
+                        """
+                client.send_message(TARGET,tx)
+                client.send_document(
+                    TARGET,
+                    file_path,
+                    caption=caption or ""
+                )
                 os.remove(file_path)
-                client.disconnect()
-            except Exception:
-                pass
+                break
+            except Exception as e:
+                last_error = e
+                error_text = str(e).lower()
+
+                transient = any(
+                    key in error_text
+                    for key in [
+                        "502",
+                        "bad gateway",
+                        "timeout",
+                        "cannot connect",
+                        "connection reset",
+                        "temporarily unavailable",
+                        "error uploading chunk",
+                    ]
+                )
+
+
+                error_msg = f"""Attempt {attempt}/{MAX_RETRIES} failed \nerror: {error_text} """
+                client.send_message(TARGET,error_msg)
+                if transient and attempt < MAX_RETRIES:
+                    time.sleep(RETRY_DELAY * attempt)
+                    continue
+
+                break
+
+                
+
+            finally:
+                try:
+                    os.remove(file_path)
+                except Exception:
+                    pass
+    client.disconnect()
     raise last_error if last_error else RuntimeError("Upload failed.")
 
 
@@ -193,29 +195,14 @@ def process_task(task: dict):
     if task_type != "local_file":
         raise RuntimeError("Unknown task type.")
 
-    original_path = Path(task.get("path", ""))
-    if not original_path.exists():
+    original_path = task.get("path", "")
+    if not original_path:
         raise RuntimeError("Local file not found.")
+    
 
-    if should_keep_extension(original_path.name):
-        send_path = original_path
-    else:
-        clean_name = remove_extension(original_path.name)
-        send_path = unique_path(original_path.parent / clean_name)
 
-        try:
-            original_path.rename(send_path)
-        except Exception:
-            send_path = original_path
-
-    try:
-        send_with_retry(str(send_path), caption)
-    finally:
-        try:
-            if send_path.exists():
-                send_path.unlink()
-        except Exception:
-            pass
+    
+    send_with_retry(original_path, caption)
 
 
 def worker_loop():
